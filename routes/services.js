@@ -1,0 +1,227 @@
+// routes/services.js
+const express = require('express');
+const router = express.Router();
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const db = require('../config/db');
+const protect = require('../middleware/auth');
+
+// Ensure upload folder exists
+const baseUploadDir = path.join(__dirname, '../uploads/services');
+if (!fs.existsSync(baseUploadDir)) {
+  fs.mkdirSync(baseUploadDir, { recursive: true });
+}
+
+// Multer setup
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, baseUploadDir),
+  filename: (req, file, cb) => {
+    const uniqueName = Date.now() + '-' + Math.round(Math.random() * 1E9) + path.extname(file.originalname);
+    cb(null, uniqueName);
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (req, file, cb) => {
+    const filetypes = /jpeg|jpg|png|gif/;
+    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = filetypes.test(file.mimetype);
+    if (extname && mimetype) {
+      return cb(null, true);
+    }
+    cb(new Error('Only image files are allowed (jpeg, jpg, png, gif)'));
+  }
+});
+
+// GET all services
+router.get('/', protect, (req, res) => {
+  db.query(
+    'SELECT id, title, slug, description, image1, image2, image3, image4, image5, active, created_at ' +
+    'FROM services ORDER BY created_at DESC',
+    (err, results) => {
+      if (err) {
+        console.error('Database error:', err);
+        return res.status(500).json({ message: 'Database error' });
+      }
+      res.json(results);
+    }
+  );
+});
+
+// GET single service
+router.get('/:id', protect, (req, res) => {
+  const { id } = req.params;
+
+  db.query('SELECT * FROM services WHERE id = ?', [id], (err, result) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ message: 'Database error' });
+    }
+    if (result.length === 0) {
+      return res.status(404).json({ message: 'Service not found' });
+    }
+    res.json(result[0]);
+  });
+});
+
+// POST - Create new service (with up to 5 images)
+router.post(
+  '/',
+  protect,
+  upload.fields([
+    { name: 'image1', maxCount: 1 },
+    { name: 'image2', maxCount: 1 },
+    { name: 'image3', maxCount: 1 },
+    { name: 'image4', maxCount: 1 },
+    { name: 'image5', maxCount: 1 }
+  ]),
+  (req, res) => {
+    const { title, slug, description, active } = req.body;
+
+    const image1 = req.files?.image1 ? req.files.image1[0].filename : null;
+    const image2 = req.files?.image2 ? req.files.image2[0].filename : null;
+    const image3 = req.files?.image3 ? req.files.image3[0].filename : null;
+    const image4 = req.files?.image4 ? req.files.image4[0].filename : null;
+    const image5 = req.files?.image5 ? req.files.image5[0].filename : null;
+
+    if (!title || !slug || !description) {
+      return res.status(400).json({ message: 'Title, slug, and description are required' });
+    }
+
+    db.query(
+      'INSERT INTO services (title, slug, description, image1, image2, image3, image4, image5, active) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [title, slug, description, image1, image2, image3, image4, image5, active ? 1 : 0],
+      (err, result) => {
+        if (err) {
+          if (err.code === 'ER_DUP_ENTRY') {
+            return res.status(400).json({ message: 'Slug already exists' });
+          }
+          console.error('Insert error:', err);
+          return res.status(500).json({ message: 'Database error' });
+        }
+        res.status(201).json({ message: 'Service created', id: result.insertId });
+      }
+    );
+  }
+);
+
+// PUT - Update service
+router.put(
+  '/:id',
+  protect,
+  upload.fields([
+    { name: 'image1', maxCount: 1 },
+    { name: 'image2', maxCount: 1 },
+    { name: 'image3', maxCount: 1 },
+    { name: 'image4', maxCount: 1 },
+    { name: 'image5', maxCount: 1 }
+  ]),
+  (req, res) => {
+    const { id } = req.params;
+    const { title, slug, description, active } = req.body;
+
+    let query = 'UPDATE services SET title = ?, slug = ?, description = ?, active = ?';
+    let params = [title, slug, description, active ? 1 : 0];
+
+    if (req.files?.image1) {
+      query += ', image1 = ?';
+      params.push(req.files.image1[0].filename);
+    }
+    if (req.files?.image2) {
+      query += ', image2 = ?';
+      params.push(req.files.image2[0].filename);
+    }
+    if (req.files?.image3) {
+      query += ', image3 = ?';
+      params.push(req.files.image3[0].filename);
+    }
+    if (req.files?.image4) {
+      query += ', image4 = ?';
+      params.push(req.files.image4[0].filename);
+    }
+    if (req.files?.image5) {
+      query += ', image5 = ?';
+      params.push(req.files.image5[0].filename);
+    }
+
+    query += ' WHERE id = ?';
+    params.push(id);
+
+    db.query(query, params, (err, result) => {
+      if (err) {
+        console.error('Update error:', err);
+        return res.status(500).json({ message: 'Database error' });
+      }
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ message: 'Service not found' });
+      }
+      res.json({ message: 'Service updated successfully' });
+    });
+  }
+);
+
+// DELETE service
+router.delete('/:id', protect, (req, res) => {
+  const { id } = req.params;
+
+  db.query('DELETE FROM services WHERE id = ?', [id], (err, result) => {
+    if (err) {
+      console.error('Delete error:', err);
+      return res.status(500).json({ message: 'Database error' });
+    }
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'Service not found' });
+    }
+    res.json({ message: 'Service deleted successfully' });
+  });
+});
+
+// ───────────────────────────────────────────────
+// Additional / optional routes (kept from your original code)
+// ───────────────────────────────────────────────
+
+// POST - Add additional image to a service (from service_images table)
+router.post('/:id/images', protect, upload.single('image'), (req, res) => {
+  const { id } = req.params;
+  const { title, subtitle, button_text, button_link, order, active } = req.body;
+  const image = req.file ? req.file.filename : null;
+
+  if (!image) {
+    return res.status(400).json({ message: 'Image file is required' });
+  }
+
+  db.query(
+    'INSERT INTO service_images (service_id, image, title, subtitle, button_text, button_link, `order`, active) ' +
+    'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, image, title || null, subtitle || null, button_text || null, button_link || null, order || 0, active ? 1 : 0],
+    (err, result) => {
+      if (err) {
+        console.error('Additional image insert error:', err);
+        return res.status(500).json({ message: 'Database error' });
+      }
+      res.status(201).json({ message: 'Additional image added', id: result.insertId });
+    }
+  );
+});
+
+// DELETE - Remove additional image
+router.delete('/images/:imageId', protect, (req, res) => {
+  const { imageId } = req.params;
+
+  db.query('DELETE FROM service_images WHERE id = ?', [imageId], (err, result) => {
+    if (err) {
+      console.error('Additional image delete error:', err);
+      return res.status(500).json({ message: 'Database error' });
+    }
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'Additional image not found' });
+    }
+    res.json({ message: 'Additional image deleted successfully' });
+  });
+});
+
+module.exports = router;
