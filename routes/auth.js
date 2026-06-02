@@ -12,14 +12,19 @@ router.post('/login', async (req, res) => {
     return res.status(400).json({ message: 'Username and password required' });
   }
 
+  let connection;
+
   try {
     console.log(`Login attempt for username: ${username}`);
 
-    // Use db.query() directly — no manual getConnection/release needed
-    const [results] = await db.query(
+    // Explicitly grab and release connection
+    connection = await db.getConnection();
+    const [results] = await connection.execute(
       'SELECT * FROM users WHERE username = ?',
       [username]
     );
+    connection.release();  // ✅ Release right after query — do not wait until end
+    connection = null;
 
     if (results.length === 0) {
       return res.status(401).json({ message: 'Invalid credentials' });
@@ -37,7 +42,7 @@ router.post('/login', async (req, res) => {
 
     if (!process.env.JWT_SECRET) {
       console.error('JWT_SECRET is not set in environment variables!');
-      return res.status(500).json({ message: 'Server misconfiguration: JWT_SECRET missing.' });
+      return res.status(500).json({ message: 'Server misconfiguration.' });
     }
 
     const token = jwt.sign(
@@ -58,14 +63,22 @@ router.post('/login', async (req, res) => {
     });
 
   } catch (error) {
+    // ✅ Always release on error
+    if (connection) {
+      connection.release();
+      connection = null;
+    }
+
     console.error('=== LOGIN ERROR ===');
     console.error('Code:   ', error.code || 'N/A');
     console.error('Message:', error.message);
     console.error('Stack:  ', error.stack);
 
-    // Always return real error so we can diagnose — tighten this once stable
+    const isDev = process.env.NODE_ENV !== 'production';
     return res.status(500).json({
-      message: `Server error: ${error.code || error.message}`,
+      message: isDev
+        ? `Server error: ${error.code || error.message}`
+        : 'Server error. Please try again later.',
     });
   }
 });
