@@ -41,25 +41,27 @@ const upload = multer({
 });
 
 // ==================== GET ALL USERS ====================
-router.get('/', protect, (req, res) => {
-  console.log('GET /users route hit');
+router.get('/', protect, async (req, res) => {
+  try {
+    console.log('GET /users route hit');
 
-  db.query(
-    'SELECT id, username, email, photo, role, active, created_at, last_login FROM users ORDER BY created_at DESC',
-    (err, results) => {
-      if (err) {
-        console.error('=== GET USERS ERROR ===');
-        console.error('Message:', err.message);
-        console.error('Code:', err.code);
-        return res.status(500).json({ 
-          message: 'Failed to load users', 
-          error: err.message 
-        });
-      }
-      console.log(`✅ Successfully fetched ${results.length} users`);
-      res.json(results);
-    }
-  );
+    const [results] = await db.query(
+      'SELECT id, username, email, photo, role, active, created_at, last_login FROM users ORDER BY created_at DESC'
+    );
+
+    console.log(`✅ Successfully fetched ${results.length} users`);
+    res.json(results);
+  } catch (error) {
+    console.error('=== GET USERS ERROR ===');
+    console.error('Message:', error.message);
+    console.error('Code:', error.code);
+    console.error('SQL Message:', error.sqlMessage);
+    
+    res.status(500).json({ 
+      message: 'Failed to load users', 
+      error: error.message 
+    });
+  }
 });
 
 // ==================== CREATE USER ====================
@@ -79,26 +81,21 @@ router.post('/', protect, (req, res, next) => {
     try {
       const hashed = await bcrypt.hash(password, 10);
 
-      db.query(
+      const [result] = await db.query(
         'INSERT INTO users (username, password, email, photo, role) VALUES (?, ?, ?, ?, ?)',
-        [username, hashed, email || null, photo, role || 'admin'],
-        (err, result) => {
-          if (err) {
-            console.error('Insert error:', err);
-            if (err.code === 'ER_DUP_ENTRY') {
-              return res.status(400).json({ message: 'Username already exists' });
-            }
-            return res.status(500).json({ message: 'Database insert failed' });
-          }
-          res.status(201).json({ 
-            message: 'User created successfully',
-            id: result.insertId 
-          });
-        }
+        [username, hashed, email || null, photo, role || 'admin']
       );
+
+      res.status(201).json({ 
+        message: 'User created successfully',
+        id: result.insertId 
+      });
     } catch (err) {
-      console.error('Hashing error:', err);
-      res.status(500).json({ message: 'Server error' });
+      console.error('Create user error:', err);
+      if (err.code === 'ER_DUP_ENTRY') {
+        return res.status(400).json({ message: 'Username already exists' });
+      }
+      res.status(500).json({ message: 'Database insert failed' });
     }
   });
 });
@@ -114,70 +111,72 @@ router.put('/:id', protect, (req, res, next) => {
     const { username, password, email, role } = req.body;
     const photo = req.file ? req.file.filename : null;
 
-    let query = 'UPDATE users SET username = ?, email = ?, role = ?';
-    const params = [username, email || null, role || 'admin'];
+    try {
+      let query = 'UPDATE users SET username = ?, email = ?, role = ?';
+      const params = [username, email || null, role || 'admin'];
 
-    if (password) {
-      const hashed = await bcrypt.hash(password, 10);
-      query += ', password = ?';
-      params.push(hashed);
-    }
-    if (photo) {
-      query += ', photo = ?';
-      params.push(photo);
-    }
-
-    query += ' WHERE id = ?';
-    params.push(id);
-
-    db.query(query, params, (err, result) => {
-      if (err) {
-        console.error('Update error:', err);
-        return res.status(500).json({ message: 'Update failed' });
+      if (password) {
+        const hashed = await bcrypt.hash(password, 10);
+        query += ', password = ?';
+        params.push(hashed);
       }
+      if (photo) {
+        query += ', photo = ?';
+        params.push(photo);
+      }
+
+      query += ' WHERE id = ?';
+      params.push(id);
+
+      const [result] = await db.query(query, params);
+
       if (result.affectedRows === 0) {
         return res.status(404).json({ message: 'User not found' });
       }
       res.json({ message: 'User updated successfully' });
-    });
+    } catch (err) {
+      console.error('Update error:', err);
+      res.status(500).json({ message: 'Update failed' });
+    }
   });
 });
 
 // ==================== DELETE USER ====================
-router.delete('/:id', protect, (req, res) => {
+router.delete('/:id', protect, async (req, res) => {
   const { id } = req.params;
 
-  db.query('DELETE FROM users WHERE id = ?', [id], (err, result) => {
-    if (err) {
-      console.error('Delete error:', err);
-      return res.status(500).json({ message: 'Delete failed' });
-    }
+  try {
+    const [result] = await db.query('DELETE FROM users WHERE id = ?', [id]);
+
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: 'User not found' });
     }
     res.json({ message: 'User deleted successfully' });
-  });
+  } catch (err) {
+    console.error('Delete error:', err);
+    res.status(500).json({ message: 'Delete failed' });
+  }
 });
 
 // ==================== TOGGLE ACTIVE ====================
-router.put('/:id/toggle-active', protect, (req, res) => {
+router.put('/:id/toggle-active', protect, async (req, res) => {
   const { id } = req.params;
   const { active } = req.body;
 
-  db.query(
-    'UPDATE users SET active = ? WHERE id = ?', 
-    [active ? 1 : 0, id], 
-    (err, result) => {
-      if (err) {
-        console.error('Toggle active error:', err);
-        return res.status(500).json({ message: 'Update failed' });
-      }
-      if (result.affectedRows === 0) {
-        return res.status(404).json({ message: 'User not found' });
-      }
-      res.json({ message: 'Status updated successfully' });
+  try {
+    const [result] = await db.query(
+      'UPDATE users SET active = ? WHERE id = ?', 
+      [active ? 1 : 0, id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'User not found' });
     }
-  );
+    res.json({ message: 'Status updated successfully' });
+  } catch (err) {
+    console.error('Toggle active error:', err);
+    res.status(500).json({ message: 'Update failed' });
+  }
 });
 
 module.exports = router;
