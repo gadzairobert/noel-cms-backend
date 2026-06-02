@@ -15,8 +15,9 @@ router.post('/login', async (req, res) => {
   try {
     console.log(`Login attempt for username: ${username}`);
 
-    const [results] = await db.execute(
-      'SELECT * FROM users WHERE username = ?', 
+    // Use retry-enabled execute
+    const [results] = await db.executeWithRetry(
+      'SELECT * FROM users WHERE username = ?',
       [username]
     );
 
@@ -26,12 +27,17 @@ router.post('/login', async (req, res) => {
 
     const user = results[0];
 
-    // Fix $2y$ → $2b$ (for PHP bcrypt)
+    // Fix $2y$ → $2b$ (PHP bcrypt compatibility)
     const hash = user.password.replace(/^\$2y\$/, '$2b$');
     const isMatch = await bcrypt.compare(password, hash);
 
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    if (!process.env.JWT_SECRET) {
+      console.error('JWT_SECRET is not set in environment variables!');
+      return res.status(500).json({ message: 'Server misconfiguration.' });
     }
 
     const token = jwt.sign(
@@ -40,23 +46,29 @@ router.post('/login', async (req, res) => {
       { expiresIn: '1d' }
     );
 
-    res.json({
+    return res.json({
       token,
       user: {
         id: user.id,
         username: user.username,
         email: user.email,
         role: user.role,
-        photo: user.photo || null
-      }
+        photo: user.photo || null,
+      },
     });
 
   } catch (error) {
     console.error('=== LOGIN ERROR ===');
-    console.error(error.message);
-    console.error(error.code || 'No error code');
-    res.status(500).json({ 
-      message: 'Server error. Please try again later.' 
+    console.error('Code:   ', error.code || 'N/A');
+    console.error('Message:', error.message);
+    console.error('Stack:  ', error.stack);
+
+    // Give a more specific message in dev, generic in prod
+    const isDev = process.env.NODE_ENV !== 'production';
+    return res.status(500).json({
+      message: isDev
+        ? `Server error: ${error.code || error.message}`
+        : 'Server error. Please try again later.',
     });
   }
 });
