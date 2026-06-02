@@ -12,14 +12,19 @@ router.post('/login', async (req, res) => {
     return res.status(400).json({ message: 'Username and password required' });
   }
 
+  let connection;
+
   try {
     console.log(`Login attempt for username: ${username}`);
 
-    // Use retry-enabled execute
-    const [results] = await db.executeWithRetry(
+    // Explicitly grab and release connection
+    connection = await db.getConnection();
+    const [results] = await connection.execute(
       'SELECT * FROM users WHERE username = ?',
       [username]
     );
+    connection.release();  // ✅ Release right after query — do not wait until end
+    connection = null;
 
     if (results.length === 0) {
       return res.status(401).json({ message: 'Invalid credentials' });
@@ -58,12 +63,17 @@ router.post('/login', async (req, res) => {
     });
 
   } catch (error) {
+    // ✅ Always release on error
+    if (connection) {
+      connection.release();
+      connection = null;
+    }
+
     console.error('=== LOGIN ERROR ===');
     console.error('Code:   ', error.code || 'N/A');
     console.error('Message:', error.message);
     console.error('Stack:  ', error.stack);
 
-    // Give a more specific message in dev, generic in prod
     const isDev = process.env.NODE_ENV !== 'production';
     return res.status(500).json({
       message: isDev

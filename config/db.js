@@ -9,11 +9,13 @@ const pool = mysql.createPool({
   password: process.env.DB_PASS,
   database: process.env.DB_NAME,
   waitForConnections: true,
-  connectionLimit: 5,           // Keep low — cPanel has strict limits
+  connectionLimit: 5,
   queueLimit: 0,
   enableKeepAlive: true,
   keepAliveInitialDelay: 10000,
   connectTimeout: 10000,
+  idleTimeout: 60000,          // Kill idle connections after 60s
+  maxIdle: 2,                  // Keep max 2 idle connections ready
 });
 
 // Test connection on startup
@@ -28,7 +30,7 @@ const pool = mysql.createPool({
   }
 })();
 
-// Retry helper — exported so any route can use it
+// Retry helper — available to any route via db.executeWithRetry()
 pool.executeWithRetry = async function (query, params, retries = 3) {
   const RETRYABLE_CODES = [
     'PROTOCOL_CONNECTION_LOST',
@@ -40,9 +42,19 @@ pool.executeWithRetry = async function (query, params, retries = 3) {
   ];
 
   for (let attempt = 1; attempt <= retries; attempt++) {
+    let connection;
     try {
-      return await pool.execute(query, params);
+      connection = await pool.getConnection();
+      const result = await connection.execute(query, params);
+      connection.release();
+      connection = null;
+      return result;
     } catch (err) {
+      if (connection) {
+        connection.release();
+        connection = null;
+      }
+
       const isRetryable = RETRYABLE_CODES.includes(err.code);
       console.warn(`DB attempt ${attempt}/${retries} failed — code: ${err.code}, message: ${err.message}`);
 
@@ -53,7 +65,6 @@ pool.executeWithRetry = async function (query, params, retries = 3) {
         continue;
       }
 
-      // Not retryable, or out of retries — rethrow
       throw err;
     }
   }
