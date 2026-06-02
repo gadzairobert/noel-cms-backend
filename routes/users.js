@@ -28,7 +28,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const filetypes = /jpeg|jpg|png|gif/;
     const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
@@ -42,17 +42,21 @@ const upload = multer({
 
 // ==================== GET ALL USERS ====================
 router.get('/', protect, (req, res) => {
+  console.log('GET /users route hit');
+
   db.query(
     'SELECT id, username, email, photo, role, active, created_at, last_login FROM users ORDER BY created_at DESC',
     (err, results) => {
       if (err) {
-        console.error('GET /users DB Error:', err.message);
-        console.error('Error Code:', err.code);
+        console.error('=== GET USERS ERROR ===');
+        console.error('Message:', err.message);
+        console.error('Code:', err.code);
         return res.status(500).json({ 
-          message: 'Database error', 
+          message: 'Failed to load users', 
           error: err.message 
         });
       }
+      console.log(`✅ Successfully fetched ${results.length} users`);
       res.json(results);
     }
   );
@@ -61,9 +65,7 @@ router.get('/', protect, (req, res) => {
 // ==================== CREATE USER ====================
 router.post('/', protect, (req, res, next) => {
   upload.single('photo')(req, res, async (err) => {
-    if (err instanceof multer.MulterError) {
-      return res.status(400).json({ message: err.message });
-    } else if (err) {
+    if (err) {
       return res.status(400).json({ message: err.message });
     }
 
@@ -82,7 +84,7 @@ router.post('/', protect, (req, res, next) => {
         [username, hashed, email || null, photo, role || 'admin'],
         (err, result) => {
           if (err) {
-            console.error('Insert user error:', err);
+            console.error('Insert error:', err);
             if (err.code === 'ER_DUP_ENTRY') {
               return res.status(400).json({ message: 'Username already exists' });
             }
@@ -130,7 +132,7 @@ router.put('/:id', protect, (req, res, next) => {
 
     db.query(query, params, (err, result) => {
       if (err) {
-        console.error('Update user error:', err);
+        console.error('Update error:', err);
         return res.status(500).json({ message: 'Update failed' });
       }
       if (result.affectedRows === 0) {
@@ -147,7 +149,7 @@ router.delete('/:id', protect, (req, res) => {
 
   db.query('DELETE FROM users WHERE id = ?', [id], (err, result) => {
     if (err) {
-      console.error('Delete user error:', err);
+      console.error('Delete error:', err);
       return res.status(500).json({ message: 'Delete failed' });
     }
     if (result.affectedRows === 0) {
@@ -157,7 +159,7 @@ router.delete('/:id', protect, (req, res) => {
   });
 });
 
-// ==================== TOGGLE ACTIVE STATUS ====================
+// ==================== TOGGLE ACTIVE ====================
 router.put('/:id/toggle-active', protect, (req, res) => {
   const { id } = req.params;
   const { active } = req.body;
