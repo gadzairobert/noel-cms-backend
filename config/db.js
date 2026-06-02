@@ -4,26 +4,27 @@ require('dotenv').config();
 
 const db = mysql.createPool({
   host: process.env.DB_HOST,
-  port: 3306,                    // ← Very important
+  port: 3306,
   user: process.env.DB_USER,
   password: process.env.DB_PASS,
   database: process.env.DB_NAME,
   waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
+  connectionLimit: 15,
+  queueLimit: 0,
+  enableKeepAlive: true
 });
 
-async function testDB() {
+// Test connection on startup
+async function testConnection() {
   try {
-    const connection = await db.getConnection();
-    console.log('✅ MySQL Connected Successfully to cPanel DB');
-    connection.release();
+    const conn = await db.getConnection();
+    console.log('✅ MySQL Pool Connected Successfully');
+    conn.release();
   } catch (err) {
-    console.error('❌ Database Connection Failed:', err.message);
-    console.error('Error Code:', err.code);
+    console.error('❌ DB Connection Error:', err.message);
   }
 }
 
-testDB();
+testConnection();
 
 module.exports = db;
