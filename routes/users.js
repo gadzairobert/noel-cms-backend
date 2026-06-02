@@ -41,9 +41,9 @@ const upload = multer({
 });
 
 // ==================== GET ALL USERS ====================
-router.get('/', protect, async (req, res) => {
+router.get('/', async (req, res) => {     // ← Removed 'protect' temporarily
   try {
-    console.log('GET /users route hit');
+    console.log('GET /users route hit - Starting query...');
 
     const [results] = await db.query(
       'SELECT id, username, email, photo, role, active, created_at, last_login FROM users ORDER BY created_at DESC'
@@ -56,6 +56,7 @@ router.get('/', protect, async (req, res) => {
     console.error('Message:', error.message);
     console.error('Code:', error.code);
     console.error('SQL Message:', error.sqlMessage);
+    console.error('Full Error:', error);
     
     res.status(500).json({ 
       message: 'Failed to load users', 
