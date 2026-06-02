@@ -14,47 +14,47 @@ const pool = mysql.createPool({
   enableKeepAlive: true,
   keepAliveInitialDelay: 10000,
   connectTimeout: 10000,
-  idleTimeout: 60000,          // Kill idle connections after 60s
-  maxIdle: 2,                  // Keep max 2 idle connections ready
+  idleTimeout: 55000,   // Slightly under the 60s cPanel wait_timeout
+  maxIdle: 2,
 });
 
 // Test connection on startup
 (async () => {
   try {
-    const connection = await pool.getConnection();
+    await pool.query('SELECT 1');
     console.log('✅ MySQL Connected Successfully');
-    connection.release();
   } catch (err) {
     console.error('❌ Database Connection Failed:', err.message);
     console.error('Check Railway env variables and cPanel Remote MySQL settings.');
   }
 })();
 
-// Retry helper — available to any route via db.executeWithRetry()
-pool.executeWithRetry = async function (query, params, retries = 3) {
-  const RETRYABLE_CODES = [
-    'PROTOCOL_CONNECTION_LOST',
-    'ECONNRESET',
-    'ETIMEDOUT',
-    'ECONNREFUSED',
-    'ER_CON_COUNT_ERROR',
-    'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR',
-  ];
+// Keep-alive ping every 30s to prevent cPanel from killing idle connections
+setInterval(async () => {
+  try {
+    await pool.query('SELECT 1');
+    console.log('🔄 DB keep-alive ping OK');
+  } catch (err) {
+    console.warn('⚠️ DB keep-alive ping failed:', err.code, err.message);
+  }
+}, 30000);
 
+// Retry helper — available to any route via db.executeWithRetry()
+const RETRYABLE_CODES = [
+  'PROTOCOL_CONNECTION_LOST',
+  'ECONNRESET',
+  'ETIMEDOUT',
+  'ECONNREFUSED',
+  'ER_CON_COUNT_ERROR',
+  'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR',
+];
+
+pool.executeWithRetry = async function (query, params, retries = 3) {
   for (let attempt = 1; attempt <= retries; attempt++) {
-    let connection;
     try {
-      connection = await pool.getConnection();
-      const result = await connection.execute(query, params);
-      connection.release();
-      connection = null;
+      const result = await pool.query(query, params);
       return result;
     } catch (err) {
-      if (connection) {
-        connection.release();
-        connection = null;
-      }
-
       const isRetryable = RETRYABLE_CODES.includes(err.code);
       console.warn(`DB attempt ${attempt}/${retries} failed — code: ${err.code}, message: ${err.message}`);
 
