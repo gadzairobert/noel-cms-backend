@@ -5,25 +5,34 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../config/db');
 
-// Login route
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   const { username, password } = req.body;
 
   if (!username || !password) {
     return res.status(400).json({ message: 'Username and password required' });
   }
 
-  db.query('SELECT * FROM users WHERE username = ?', [username], async (err, results) => {
-    if (err) return res.status(500).json({ message: 'Database error' });
-    if (results.length === 0) return res.status(401).json({ message: 'Invalid credentials' });
+  try {
+    console.log(`Login attempt for username: ${username}`);
+
+    const [results] = await db.execute(
+      'SELECT * FROM users WHERE username = ?', 
+      [username]
+    );
+
+    if (results.length === 0) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
 
     const user = results[0];
 
-    // Fix PHP-generated bcrypt prefix $2y$ → $2b$
+    // Fix $2y$ → $2b$ (for PHP bcrypt)
     const hash = user.password.replace(/^\$2y\$/, '$2b$');
     const isMatch = await bcrypt.compare(password, hash);
 
-    if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
 
     const token = jwt.sign(
       { id: user.id, username: user.username, role: user.role },
@@ -41,7 +50,15 @@ router.post('/login', (req, res) => {
         photo: user.photo || null
       }
     });
-  });
+
+  } catch (error) {
+    console.error('=== LOGIN ERROR ===');
+    console.error(error.message);
+    console.error(error.code || 'No error code');
+    res.status(500).json({ 
+      message: 'Server error. Please try again later.' 
+    });
+  }
 });
 
 module.exports = router;

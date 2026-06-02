@@ -1,31 +1,29 @@
 // config/db.js
-const mysql = require('mysql2/promise');   // ← better to use promise version
+const mysql = require('mysql2/promise');
 require('dotenv').config();
 
 const db = mysql.createPool({
   host: process.env.DB_HOST,
-  port: 3306,                    // ← ADD THIS
+  port: 3306,                    // ← Very important
   user: process.env.DB_USER,
   password: process.env.DB_PASS,
   database: process.env.DB_NAME,
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0,
-  enableKeepAlive: true
+  queueLimit: 0
 });
 
-// Test connection
-async function testConnection() {
+async function testDB() {
   try {
     const connection = await db.getConnection();
-    console.log('✅ MySQL Connected Successfully');
+    console.log('✅ MySQL Connected Successfully to cPanel DB');
     connection.release();
   } catch (err) {
-    console.error('❌ Database connection failed:', err.message);
-    // Do NOT process.exit(1) in production
+    console.error('❌ Database Connection Failed:', err.message);
+    console.error('Error Code:', err.code);
   }
 }
 
-testConnection();
+testDB();
 
 module.exports = db;
