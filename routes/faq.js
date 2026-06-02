@@ -7,7 +7,6 @@ const fs = require('fs');
 const db = require('../config/db');
 const protect = require('../middleware/auth');
 
-// Ensure upload folder exists
 const uploadDir = path.join(__dirname, '../uploads/faq');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
@@ -23,40 +22,38 @@ const upload = multer({
   storage,
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowed = /jpe?g|png|webp/;
-    cb(null, allowed.test(path.extname(file.originalname).toLowerCase()));
+    cb(null, /jpe?g|png|webp/.test(path.extname(file.originalname).toLowerCase()));
   }
 });
 
 // GET all FAQs (admin)
-router.get('/', protect, (req, res) => {
-  db.query(
-    `SELECT id, title, description, image_filename, \`order\`, active, created_at
-     FROM faq
-     ORDER BY \`order\` ASC, id DESC`,
-    (err, results) => {
-      if (err) return res.status(500).json({ message: 'Database error' });
-      res.json(results);
-    }
-  );
+router.get('/', protect, async (req, res) => {
+  try {
+    const [results] = await db.query(
+      'SELECT id, title, description, image_filename, `order`, active, created_at FROM faq ORDER BY `order` ASC, id DESC'
+    );
+    res.json(results);
+  } catch (err) {
+    console.error('GET /faq error:', err.code, err.message);
+    res.status(500).json({ message: 'Database error', error: err.message });
+  }
 });
 
-// GET active FAQs (public / frontend)
-router.get('/active', (req, res) => {
-  db.query(
-    `SELECT id, title, description, image_filename, \`order\`
-     FROM faq
-     WHERE active = 1
-     ORDER BY \`order\` ASC, id DESC`,
-    (err, results) => {
-      if (err) return res.status(500).json({ message: 'Database error' });
-      res.json(results);
-    }
-  );
+// GET active FAQs (public)
+router.get('/active', async (req, res) => {
+  try {
+    const [results] = await db.query(
+      'SELECT id, title, description, image_filename, `order` FROM faq WHERE active = 1 ORDER BY `order` ASC, id DESC'
+    );
+    res.json(results);
+  } catch (err) {
+    console.error('GET /faq/active error:', err.code, err.message);
+    res.status(500).json({ message: 'Database error', error: err.message });
+  }
 });
 
 // POST new FAQ
-router.post('/', protect, upload.single('image'), (req, res) => {
+router.post('/', protect, upload.single('image'), async (req, res) => {
   const { title, description, order, active } = req.body;
   const image = req.file ? req.file.filename : null;
 
@@ -64,69 +61,66 @@ router.post('/', protect, upload.single('image'), (req, res) => {
     return res.status(400).json({ message: 'Title and description are required' });
   }
 
-  db.query(
-    `INSERT INTO faq 
-     (title, description, image_filename, \`order\`, active)
-     VALUES (?, ?, ?, ?, ?)`,
-    [
-      title,
-      description,
-      image,
-      order ? Number(order) : 999,
-      active !== false ? 1 : 0
-    ],
-    (err, result) => {
-      if (err) return res.status(500).json({ message: 'Database error' });
-      res.status(201).json({ message: 'FAQ added', id: result.insertId });
-    }
-  );
+  try {
+    const [result] = await db.query(
+      'INSERT INTO faq (title, description, image_filename, `order`, active) VALUES (?, ?, ?, ?, ?)',
+      [title, description, image, order ? Number(order) : 999, active !== false ? 1 : 0]
+    );
+    res.status(201).json({ message: 'FAQ added', id: result.insertId });
+  } catch (err) {
+    console.error('POST /faq error:', err.code, err.message);
+    res.status(500).json({ message: 'Database error', error: err.message });
+  }
 });
 
-// PUT update
-router.put('/:id', protect, upload.single('image'), (req, res) => {
-  const { id } = req.params;
+// PUT update FAQ
+router.put('/:id', protect, upload.single('image'), async (req, res) => {
   const { title, description, order, active } = req.body;
-
-  let query = `UPDATE faq SET title = ?, description = ?`;
+  let query = 'UPDATE faq SET title = ?, description = ?';
   const params = [title, description];
 
-  if (req.file)                { query += `, image_filename = ?`; params.push(req.file.filename); }
-  if (order !== undefined)     { query += `, \`order\` = ?`; params.push(Number(order)); }
-  if (active !== undefined)    { query += `, active = ?`; params.push(active ? 1 : 0); }
+  if (req.file)             { query += ', image_filename = ?'; params.push(req.file.filename); }
+  if (order !== undefined)  { query += ', `order` = ?';        params.push(Number(order)); }
+  if (active !== undefined) { query += ', active = ?';         params.push(active ? 1 : 0); }
 
-  query += ` WHERE id = ?`;
-  params.push(id);
+  query += ' WHERE id = ?';
+  params.push(req.params.id);
 
-  db.query(query, params, (err, result) => {
-    if (err) return res.status(500).json({ message: 'Update failed' });
+  try {
+    const [result] = await db.query(query, params);
     if (result.affectedRows === 0) return res.status(404).json({ message: 'Not found' });
     res.json({ message: 'FAQ updated' });
-  });
+  } catch (err) {
+    console.error('PUT /faq/:id error:', err.code, err.message);
+    res.status(500).json({ message: 'Update failed', error: err.message });
+  }
 });
 
-// DELETE
-router.delete('/:id', protect, (req, res) => {
-  const { id } = req.params;
-  db.query('DELETE FROM faq WHERE id = ?', [id], (err, result) => {
-    if (err) return res.status(500).json({ message: 'Delete failed' });
+// DELETE FAQ
+router.delete('/:id', protect, async (req, res) => {
+  try {
+    const [result] = await db.query('DELETE FROM faq WHERE id = ?', [req.params.id]);
     if (result.affectedRows === 0) return res.status(404).json({ message: 'Not found' });
     res.json({ message: 'FAQ deleted' });
-  });
+  } catch (err) {
+    console.error('DELETE /faq/:id error:', err.code, err.message);
+    res.status(500).json({ message: 'Delete failed', error: err.message });
+  }
 });
 
-// Toggle active
-router.put('/:id/toggle-active', protect, (req, res) => {
-  const { id } = req.params;
-  const { active } = req.body;
-  db.query(
-    'UPDATE faq SET active = ? WHERE id = ?',
-    [active ? 1 : 0, id],
-    (err, result) => {
-      if (err) return res.status(500).json({ message: 'Update failed' });
-      if (result.affectedRows === 0) return res.status(404).json({ message: 'Not found' });
-      res.json({ message: `FAQ ${active ? 'activated' : 'deactivated'}` });
-    }
-  );
+// PUT toggle active
+router.put('/:id/toggle-active', protect, async (req, res) => {
+  try {
+    const [result] = await db.query(
+      'UPDATE faq SET active = ? WHERE id = ?',
+      [req.body.active ? 1 : 0, req.params.id]
+    );
+    if (result.affectedRows === 0) return res.status(404).json({ message: 'Not found' });
+    res.json({ message: `FAQ ${req.body.active ? 'activated' : 'deactivated'}` });
+  } catch (err) {
+    console.error('PUT /faq/:id/toggle-active error:', err.code, err.message);
+    res.status(500).json({ message: 'Update failed', error: err.message });
+  }
 });
 
 module.exports = router;
