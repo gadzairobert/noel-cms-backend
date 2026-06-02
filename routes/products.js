@@ -29,116 +29,128 @@ const upload = multer({
 });
 
 // GET all products (admin)
-router.get('/', protect, (req, res) => {
-  db.query(
-    `SELECT id, title, slug, description, price, image_filename, category, stock, active, \`order\`, created_at
-     FROM products ORDER BY \`order\` ASC, id DESC`,
-    (err, results) => {
-      if (err) return res.status(500).json({ message: 'Database error' });
-      res.json(results);
-    }
-  );
+router.get('/', protect, async (req, res) => {
+  try {
+    const [results] = await db.query(
+      `SELECT id, title, slug, description, price, image_filename, category, stock, active, \`order\`, created_at
+       FROM products ORDER BY \`order\` ASC, id DESC`
+    );
+    res.json(results);
+  } catch (err) {
+    console.error('Get products error:', err);
+    res.status(500).json({ message: 'Database error' });
+  }
 });
 
 // GET active products (public / frontend)
-router.get('/active', (req, res) => {
-  db.query(
-    `SELECT id, title, slug, description, price, image_filename, category, \`order\`
-     FROM products WHERE active = 1 ORDER BY \`order\` ASC, id DESC`,
-    (err, results) => {
-      if (err) return res.status(500).json({ message: 'Database error' });
-      res.json(results);
-    }
-  );
+router.get('/active', async (req, res) => {
+  try {
+    const [results] = await db.query(
+      `SELECT id, title, slug, description, price, image_filename, category, \`order\`
+       FROM products WHERE active = 1 ORDER BY \`order\` ASC, id DESC`
+    );
+    res.json(results);
+  } catch (err) {
+    console.error('Get active products error:', err);
+    res.status(500).json({ message: 'Database error' });
+  }
 });
 
 // POST new product
-router.post('/', protect, upload.single('image'), (req, res) => {
-  const { title, slug, description, price, category, stock, order, active } = req.body;
-  const image = req.file ? req.file.filename : null;
+router.post('/', protect, upload.single('image'), async (req, res) => {
+  try {
+    const { title, slug, description, price, category, stock, order, active } = req.body;
+    const image = req.file ? req.file.filename : null;
 
-  if (!title || !slug || !price) {
-    return res.status(400).json({ message: 'Title, slug, and price required' });
-  }
-
-  db.query(
-    `INSERT INTO products (title, slug, description, price, image_filename, category, stock, \`order\`, active)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      title,
-      slug,
-      description || null,
-      parseFloat(price),
-      image,
-      category || null,
-      stock ? parseInt(stock) : 0,
-      order ? Number(order) : 999,
-      active !== false ? 1 : 0
-    ],
-    (err, result) => {
-      if (err) {
-        if (err.code === 'ER_DUP_ENTRY') {
-          return res.status(400).json({ message: 'Slug already exists' });
-        }
-        return res.status(500).json({ message: 'Database error' });
-      }
-      res.status(201).json({ message: 'Product created', id: result.insertId });
+    if (!title || !slug || !price) {
+      return res.status(400).json({ message: 'Title, slug, and price required' });
     }
-  );
+
+    const [result] = await db.query(
+      `INSERT INTO products (title, slug, description, price, image_filename, category, stock, \`order\`, active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        title,
+        slug,
+        description || null,
+        parseFloat(price),
+        image,
+        category || null,
+        stock ? parseInt(stock) : 0,
+        order ? Number(order) : 999,
+        active !== false ? 1 : 0
+      ]
+    );
+    res.status(201).json({ message: 'Product created', id: result.insertId });
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ message: 'Slug already exists' });
+    }
+    console.error('Create product error:', err);
+    res.status(500).json({ message: 'Database error' });
+  }
 });
 
 // PUT update product
-router.put('/:id', protect, upload.single('image'), (req, res) => {
-  const { id } = req.params;
-  const { title, slug, description, price, category, stock, order, active } = req.body;
+router.put('/:id', protect, upload.single('image'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, slug, description, price, category, stock, order, active } = req.body;
 
-  let query = `UPDATE products SET title = ?, slug = ?`;
-  const params = [title, slug];
+    let query = `UPDATE products SET title = ?, slug = ?`;
+    const params = [title, slug];
 
-  if (description !== undefined) { query += `, description = ?`; params.push(description || null); }
-  if (price !== undefined)       { query += `, price = ?`;       params.push(parseFloat(price)); }
-  if (req.file)                  { query += `, image_filename = ?`; params.push(req.file.filename); }
-  if (category !== undefined)    { query += `, category = ?`;   params.push(category || null); }
-  if (stock !== undefined)       { query += `, stock = ?`;      params.push(parseInt(stock)); }
-  if (order !== undefined)       { query += `, \`order\` = ?`;  params.push(Number(order)); }
-  if (active !== undefined)      { query += `, active = ?`;     params.push(active ? 1 : 0); }
+    if (description !== undefined) { query += `, description = ?`;    params.push(description || null); }
+    if (price !== undefined)       { query += `, price = ?`;          params.push(parseFloat(price)); }
+    if (req.file)                  { query += `, image_filename = ?`; params.push(req.file.filename); }
+    if (category !== undefined)    { query += `, category = ?`;       params.push(category || null); }
+    if (stock !== undefined)       { query += `, stock = ?`;          params.push(parseInt(stock)); }
+    if (order !== undefined)       { query += `, \`order\` = ?`;      params.push(Number(order)); }
+    if (active !== undefined)      { query += `, active = ?`;         params.push(active ? 1 : 0); }
 
-  query += ` WHERE id = ?`;
-  params.push(id);
+    query += ` WHERE id = ?`;
+    params.push(id);
 
-  db.query(query, params, (err, result) => {
-    if (err) {
-      if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ message: 'Slug already exists' });
-      return res.status(500).json({ message: 'Update failed' });
-    }
+    const [result] = await db.query(query, params);
     if (result.affectedRows === 0) return res.status(404).json({ message: 'Product not found' });
     res.json({ message: 'Product updated' });
-  });
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ message: 'Slug already exists' });
+    }
+    console.error('Update product error:', err);
+    res.status(500).json({ message: 'Update failed' });
+  }
 });
 
 // DELETE
-router.delete('/:id', protect, (req, res) => {
-  const { id } = req.params;
-  db.query('DELETE FROM products WHERE id = ?', [id], (err, result) => {
-    if (err) return res.status(500).json({ message: 'Delete failed' });
+router.delete('/:id', protect, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [result] = await db.query('DELETE FROM products WHERE id = ?', [id]);
     if (result.affectedRows === 0) return res.status(404).json({ message: 'Not found' });
     res.json({ message: 'Product deleted' });
-  });
+  } catch (err) {
+    console.error('Delete product error:', err);
+    res.status(500).json({ message: 'Delete failed' });
+  }
 });
 
 // Toggle active
-router.put('/:id/toggle-active', protect, (req, res) => {
-  const { id } = req.params;
-  const { active } = req.body;
-  db.query(
-    'UPDATE products SET active = ? WHERE id = ?',
-    [active ? 1 : 0, id],
-    (err, result) => {
-      if (err) return res.status(500).json({ message: 'Update failed' });
-      if (result.affectedRows === 0) return res.status(404).json({ message: 'Not found' });
-      res.json({ message: `Product ${active ? 'activated' : 'deactivated'}` });
-    }
-  );
+router.put('/:id/toggle-active', protect, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { active } = req.body;
+    const [result] = await db.query(
+      'UPDATE products SET active = ? WHERE id = ?',
+      [active ? 1 : 0, id]
+    );
+    if (result.affectedRows === 0) return res.status(404).json({ message: 'Not found' });
+    res.json({ message: `Product ${active ? 'activated' : 'deactivated'}` });
+  } catch (err) {
+    console.error('Toggle product error:', err);
+    res.status(500).json({ message: 'Update failed' });
+  }
 });
 
 module.exports = router;

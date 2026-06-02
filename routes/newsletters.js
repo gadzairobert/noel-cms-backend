@@ -15,56 +15,60 @@ router.post('/subscribe', async (req, res) => {
   try {
     await db.query(
       'INSERT INTO newsletters (email, name) VALUES (?, ?)',
-      [email.trim().toLowerCase(), name?.trim() || null],
-      (err) => {
-        if (err && err.code === 'ER_DUP_ENTRY') {
-          return res.status(409).json({ message: 'Already subscribed' });
-        }
-        if (err) throw err;
-        res.status(201).json({ message: 'Subscribed successfully' });
-      }
+      [email.trim().toLowerCase(), name?.trim() || null]
     );
+    res.status(201).json({ message: 'Subscribed successfully' });
   } catch (err) {
-    console.error(err);
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ message: 'Already subscribed' });
+    }
+    console.error('Subscribe error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
 // ADMIN: Get all subscribers
-router.get('/', protect, (req, res) => {
-  db.query(
-    `SELECT id, email, name, subscribed_at, active, last_sent, notes
-     FROM newsletters ORDER BY subscribed_at DESC`,
-    (err, results) => {
-      if (err) return res.status(500).json({ message: 'Database error' });
-      res.json(results);
-    }
-  );
+router.get('/', protect, async (req, res) => {
+  try {
+    const [results] = await db.query(
+      `SELECT id, email, name, subscribed_at, active, last_sent, notes
+       FROM newsletters ORDER BY subscribed_at DESC`
+    );
+    res.json(results);
+  } catch (err) {
+    console.error('Get newsletters error:', err);
+    res.status(500).json({ message: 'Database error' });
+  }
 });
 
 // ADMIN: Delete subscriber
-router.delete('/:id', protect, (req, res) => {
-  const { id } = req.params;
-  db.query('DELETE FROM newsletters WHERE id = ?', [id], (err, result) => {
-    if (err) return res.status(500).json({ message: 'Delete failed' });
+router.delete('/:id', protect, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [result] = await db.query('DELETE FROM newsletters WHERE id = ?', [id]);
     if (result.affectedRows === 0) return res.status(404).json({ message: 'Not found' });
     res.json({ message: 'Subscriber deleted' });
-  });
+  } catch (err) {
+    console.error('Delete newsletter error:', err);
+    res.status(500).json({ message: 'Delete failed' });
+  }
 });
 
-// ADMIN: Toggle active (optional - e.g. unsubscribe temporarily)
-router.put('/:id/toggle-active', protect, (req, res) => {
-  const { id } = req.params;
-  const { active } = req.body;
-  db.query(
-    'UPDATE newsletters SET active = ? WHERE id = ?',
-    [active ? 1 : 0, id],
-    (err, result) => {
-      if (err) return res.status(500).json({ message: 'Update failed' });
-      if (result.affectedRows === 0) return res.status(404).json({ message: 'Not found' });
-      res.json({ message: `Subscriber ${active ? 'reactivated' : 'deactivated'}` });
-    }
-  );
+// ADMIN: Toggle active
+router.put('/:id/toggle-active', protect, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { active } = req.body;
+    const [result] = await db.query(
+      'UPDATE newsletters SET active = ? WHERE id = ?',
+      [active ? 1 : 0, id]
+    );
+    if (result.affectedRows === 0) return res.status(404).json({ message: 'Not found' });
+    res.json({ message: `Subscriber ${active ? 'reactivated' : 'deactivated'}` });
+  } catch (err) {
+    console.error('Toggle newsletter error:', err);
+    res.status(500).json({ message: 'Update failed' });
+  }
 });
 
 module.exports = router;
